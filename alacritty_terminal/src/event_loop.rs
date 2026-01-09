@@ -20,6 +20,9 @@ use crate::term::Term;
 use crate::{thread, tty};
 use vte::ansi;
 
+#[cfg(target_os = "macos")]
+use crate::normalization::NormalizationHandler;
+
 /// Max bytes to read from the PTY before forced terminal synchronization.
 pub(crate) const READ_BUFFER_SIZE: usize = 0x10_0000;
 
@@ -151,7 +154,20 @@ where
             }
 
             // Parse the incoming bytes.
-            state.parser.advance(&mut **terminal, &buf[..unprocessed]);
+            #[cfg(target_os = "macos")]
+            {
+                let mut handler = NormalizationHandler {
+                    term: &mut **terminal,
+                    buffer: &mut state.normalization_buffer,
+                };
+                state.parser.advance(&mut handler, &buf[..unprocessed]);
+                handler.flush();
+            }
+
+            #[cfg(not(target_os = "macos"))]
+            {
+                state.parser.advance(&mut **terminal, &buf[..unprocessed]);
+            }
 
             processed += unprocessed;
             unprocessed = 0;
@@ -401,6 +417,8 @@ pub struct State {
     write_list: VecDeque<Cow<'static, [u8]>>,
     writing: Option<Writing>,
     parser: ansi::Processor,
+    #[cfg(target_os = "macos")]
+    pub normalization_buffer: String,
 }
 
 impl State {
