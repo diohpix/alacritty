@@ -1,29 +1,61 @@
-use unicode_normalization::UnicodeNormalization;
+use unicode_normalization::{char::is_combining_mark, UnicodeNormalization};
 use vte::ansi::{self, Handler};
 
 pub struct NormalizationHandler<'a, T> {
-    pub term: &'a mut T,
-    pub buffer: &'a mut String,
+    term: &'a mut T,
+    buffer: &'a mut String,
+    needs_normalization: bool,
 }
 
 impl<'a, T: Handler> NormalizationHandler<'a, T> {
+    pub fn new(term: &'a mut T, buffer: &'a mut String) -> Self {
+        Self { term, buffer, needs_normalization: false }
+    }
+
     pub fn flush(&mut self) {
         if self.buffer.is_empty() {
             return;
         }
 
-        for c in self.buffer.nfc() {
-            self.term.input(c);
+        if self.needs_normalization {
+            for c in self.buffer.nfc() {
+                self.term.input(c);
+            }
+        } else {
+            for c in self.buffer.chars() {
+                self.term.input(c);
+            }
         }
 
         self.buffer.clear();
+        self.needs_normalization = false;
     }
+
+    #[inline]
+    fn mark_if_needs_normalization(&mut self, c: char) {
+        if self.needs_normalization {
+            return;
+        }
+
+        if is_combining_mark(c) || is_hangul_jamo(c) {
+            self.needs_normalization = true;
+        }
+    }
+}
+
+#[inline]
+fn is_hangul_jamo(c: char) -> bool {
+    matches!(
+        c as u32,
+        0x1100..=0x11FF | 0xA960..=0xA97F | 0xD7B0..=0xD7FF
+    )
 }
 
 impl<'a, T: Handler> Handler for NormalizationHandler<'a, T> {
     #[inline]
     fn input(&mut self, c: char) {
         self.buffer.push(c);
+        self.mark_if_needs_normalization(c);
     }
 
     #[inline]
@@ -432,7 +464,7 @@ mod tests {
     fn normalization_works() {
         let mut term = mock_term("  "); // Dummy term with 2 columns
         let mut buffer = String::new();
-        let mut handler = NormalizationHandler { term: &mut term, buffer: &mut buffer };
+        let mut handler = NormalizationHandler::new(&mut term, &mut buffer);
 
         // Hangul Jamo: ᄀ (U+1100) + ᅡ (U+1161) -> 가 (U+AC00)
         handler.input('\u{1100}');

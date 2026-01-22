@@ -156,10 +156,8 @@ where
             // Parse the incoming bytes.
             #[cfg(target_os = "macos")]
             {
-                let mut handler = NormalizationHandler {
-                    term: &mut **terminal,
-                    buffer: &mut state.normalization_buffer,
-                };
+                let mut handler =
+                    NormalizationHandler::new(&mut **terminal, &mut state.normalization_buffer);
                 state.parser.advance(&mut handler, &buf[..unprocessed]);
                 handler.flush();
             }
