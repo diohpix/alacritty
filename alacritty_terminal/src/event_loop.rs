@@ -15,6 +15,7 @@ use log::error;
 use polling::{Event as PollingEvent, Events, PollMode};
 
 use crate::event::{self, Event, EventListener, WindowSize};
+use crate::kitty_graphics_filter::ApcFilter;
 use crate::sync::FairMutex;
 use crate::term::Term;
 use crate::{thread, tty};
@@ -153,18 +154,31 @@ where
                 writer.write_all(&buf[..unprocessed]).unwrap();
             }
 
-            // Parse the incoming bytes.
-            #[cfg(target_os = "macos")]
-            {
-                let mut handler =
-                    NormalizationHandler::new(&mut **terminal, &mut state.normalization_buffer);
-                state.parser.advance(&mut handler, &buf[..unprocessed]);
-                handler.flush();
+            // Filter Kitty Graphics APC sequences before vte parsing.
+            let (passthrough, apc_sequences) = state.apc_filter.filter(&buf[..unprocessed]);
+
+            // Dispatch completed Kitty Graphics APC sequences as events.
+            for apc_data in apc_sequences {
+                self.event_proxy.send_event(Event::KittyGraphics(apc_data));
             }
 
-            #[cfg(not(target_os = "macos"))]
-            {
-                state.parser.advance(&mut **terminal, &buf[..unprocessed]);
+            // Parse the remaining (non-APC) bytes.
+            if !passthrough.is_empty() {
+                // Need to copy passthrough since it borrows from apc_filter
+                let passthrough_owned = passthrough.to_vec();
+
+                #[cfg(target_os = "macos")]
+                {
+                    let mut handler =
+                        NormalizationHandler::new(&mut **terminal, &mut state.normalization_buffer);
+                    state.parser.advance(&mut handler, &passthrough_owned);
+                    handler.flush();
+                }
+
+                #[cfg(not(target_os = "macos"))]
+                {
+                    state.parser.advance(&mut **terminal, &passthrough_owned);
+                }
             }
 
             processed += unprocessed;
@@ -415,6 +429,7 @@ pub struct State {
     write_list: VecDeque<Cow<'static, [u8]>>,
     writing: Option<Writing>,
     parser: ansi::Processor,
+    apc_filter: ApcFilter,
     #[cfg(target_os = "macos")]
     pub normalization_buffer: String,
 }

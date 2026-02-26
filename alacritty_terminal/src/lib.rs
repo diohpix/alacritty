@@ -8,6 +8,7 @@ pub mod event;
 pub mod event_loop;
 pub mod grid;
 pub mod index;
+pub mod kitty_graphics_filter;
 #[cfg(target_os = "macos")]
 pub mod normalization;
 pub mod selection;

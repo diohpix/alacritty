@@ -55,6 +55,10 @@ pub enum Event {
 
     /// Child process exited with an error code.
     ChildExit(i32),
+
+    /// Kitty Graphics Protocol APC sequence received.
+    /// Contains the raw body between `ESC _ G` and `ESC \` (not including framing).
+    KittyGraphics(Vec<u8>),
 }
 
 impl Debug for Event {
@@ -73,6 +77,7 @@ impl Debug for Event {
             Event::Bell => write!(f, "Bell"),
             Event::Exit => write!(f, "Exit"),
             Event::ChildExit(code) => write!(f, "ChildExit({code})"),
+            Event::KittyGraphics(data) => write!(f, "KittyGraphics({} bytes)", data.len()),
         }
     }
 }
